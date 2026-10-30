@@ -6,7 +6,7 @@
 window.CHAT_CONFIG = {
   supabaseUrl: 'https://ropzoigwcpvjgiikujca.supabase.co',
   // Cole entre as aspas a chave "anon public" (Supabase → Project Settings → API Keys → Legacy).
-  supabaseAnonKey: '',
+  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvcHpvaWd3Y3B2amdpaWt1amNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMDcxNDgsImV4cCI6MjEwODg4MzE0OH0.I2_DpItVHbyc_wk-VgE0lfi-7gf1mamKhCnuD2PVQgA',
   // true = quando alguém escreve "@Nome" de uma IA com resposta automática ligada,
   // o chat chama a IA pela API da Anthropic (função "responder-ia" no Supabase).
   iaAutomatica: true,
