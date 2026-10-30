@@ -7,7 +7,12 @@
   const CFG = window.CHAT_CONFIG || {};
   const DEMO = !CFG.supabaseUrl || !CFG.supabaseAnonKey;
   const LIMITE_MB = 25;
-  const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js';
+  // Biblioteca do Supabase: tenta vários endereços, porque alguns celulares/operadoras bloqueiam um deles.
+  const SUPABASE_JS = [
+    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js',
+    'https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js',
+    'https://fastly.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js',
+  ];
 
   // ---------- utilidades ----------
   const $ = (s, r = document) => r.querySelector(s);
@@ -30,7 +35,19 @@
     el.textContent = t; clearTimeout(tToast); tToast = setTimeout(() => el.remove(), 4000);
   }
   function carregarScript(src) {
-    return new Promise((ok, erro) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => erro(new Error('Não foi possível carregar o Supabase. Confira a internet.')); document.head.appendChild(s); });
+    return new Promise((ok, erro) => {
+      const s = document.createElement('script'); s.src = src;
+      const t = setTimeout(() => { s.remove(); erro(new Error('demorou')); }, 12000);
+      s.onload = () => { clearTimeout(t); ok(); }; s.onerror = () => { clearTimeout(t); s.remove(); erro(new Error('falhou')); };
+      document.head.appendChild(s);
+    });
+  }
+  async function carregarSupabase() {
+    for (const src of SUPABASE_JS) {
+      if (window.supabase?.createClient) return;
+      try { await carregarScript(src); } catch (e) { /* tenta o próximo endereço */ }
+    }
+    if (!window.supabase?.createClient) throw new Error('Não consegui conectar ao servidor do chat. Confira a internet (ou troque entre Wi-Fi e dados móveis) e recarregue a página.');
   }
   function linkificar(t, membros) {
     let h = esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
@@ -46,7 +63,7 @@
   function apiSupabase() {
     let sb; const urlCache = new Map();
     return {
-      async iniciar() { await carregarScript(SUPABASE_JS); sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey); },
+      async iniciar() { if (sb) return; await carregarSupabase(); sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey); },
       async meuMembro() {
         const { data: s } = await sb.auth.getSession();
         if (!s.session) return null;
@@ -58,6 +75,7 @@
         return data;
       },
       async entrar(email, senha) {
+        await this.iniciar();
         const { error } = await sb.auth.signInWithPassword({ email, password: senha });
         if (error) throw new Error(error.message === 'Invalid login credentials' ? 'E-mail ou senha errados.' : error.message);
         return this.meuMembro();
@@ -363,26 +381,46 @@
 
   // ---------- voz ----------
   // 1) Ditado: você fala e vira texto na caixa (as IAs conseguem ler).
-  let ditado = null;
+  let ditado = null; let ditadoLigado = false;
+  const CELULAR = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
   function alternarDitado() {
     const btn = $('#btn-ditar');
-    if (ditado) { ditado.stop(); return; }
+    if (ditado) { ditadoLigado = false; ditado.stop(); return; }
     const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Rec) return toast('Este navegador não transforma voz em texto. Use o Chrome ou grave um áudio.');
-    const ta = $('#texto'); const base = ta.value ? `${ta.value.replace(/\s+$/, '')} ` : '';
-    ditado = new Rec(); ditado.lang = 'pt-BR'; ditado.continuous = true; ditado.interimResults = true;
-    let final = '';
-    ditado.onresult = (e) => {
-      let parcial = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) final += e.results[i][0].transcript; else parcial += e.results[i][0].transcript;
-      }
-      ta.value = base + final + parcial; ta.dispatchEvent(new Event('input'));
+    const ta = $('#texto');
+    let base = ta.value ? `${ta.value.replace(/\s+$/, '')} ` : '';
+    let trecho = '';
+    const juntar = (a, b) => (a && b ? `${a.replace(/\s+$/, '')} ${b.replace(/^\s+/, '')}` : a + b);
+    const comecar = () => {
+      ditado = new Rec(); ditado.lang = 'pt-BR'; ditado.interimResults = true;
+      // No celular, o modo contínuo repete palavras; lá ouvimos uma frase por vez e religamos sozinhos.
+      ditado.continuous = !CELULAR; ditado.maxAlternatives = 1;
+      trecho = '';
+      ditado.onresult = (e) => {
+        let fin = ''; let parcial = '';
+        for (let i = 0; i < e.results.length; i++) {
+          const t = e.results[i][0].transcript.trim();
+          if (!t) continue;
+          if (e.results[i].isFinal) fin = juntar(fin, t); else parcial = juntar(parcial, t);
+        }
+        trecho = juntar(fin, parcial);
+        ta.value = juntar(base, trecho); ta.dispatchEvent(new Event('input'));
+      };
+      ditado.onerror = (e) => {
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { ditadoLigado = false; toast('Libere o microfone no cadeado ao lado do endereço do site.'); }
+      };
+      ditado.onend = () => {
+        if (trecho) { base = `${juntar(base, trecho)} `; trecho = ''; }
+        if (ditadoLigado) { try { comecar(); return; } catch (e) { /* para */ } }
+        ditado = null; btn.classList.remove('gravando'); btn.setAttribute('aria-pressed', 'false');
+        ta.value = ta.value.replace(/\s+$/, ''); toast('Ditado parado. Confira o texto e clique em Enviar.');
+      };
+      ditado.start();
     };
-    ditado.onerror = (e) => { if (e.error === 'not-allowed') toast('Libere o microfone no cadeado ao lado do endereço do site.'); };
-    ditado.onend = () => { ditado = null; btn.classList.remove('gravando'); btn.setAttribute('aria-pressed', 'false'); toast('Ditado parado. Confira o texto e clique em Enviar.'); };
-    ditado.start(); btn.classList.add('gravando'); btn.setAttribute('aria-pressed', 'true');
-    toast('Pode falar. Clique no microfone de novo para parar.');
+    ditadoLigado = true; comecar();
+    btn.classList.add('gravando'); btn.setAttribute('aria-pressed', 'true');
+    toast('Pode falar. Toque no microfone de novo para parar.');
   }
   // 2) Mensagem de áudio: grava e envia como áudio (bom para pessoas; as IAs leem só texto).
   let gravador = null;
