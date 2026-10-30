@@ -153,6 +153,11 @@
       ouvir(salaId, f) { ouvintes.set(salaId, [...(ouvintes.get(salaId) || []), f]); return () => ouvintes.set(salaId, (ouvintes.get(salaId) || []).filter((x) => x !== f)); },
       async gerenciar(corpo) {
         if (corpo.acao === 'listar') return { membros: membros.map((m) => ({ ...m, email: m.email || null, temLogin: !!m.email })) };
+        if (corpo.acao === 'adicionar') {
+          if (membros.some((x) => norm(x.nome) === norm(corpo.nome))) throw new Error(`Já existe alguém chamado ${corpo.nome}.`);
+          membros.push({ id: `n${++seq}`, nome: corpo.nome, tipo: corpo.tipo, cor: '#22D3EE', auto: corpo.tipo === 'ia' && corpo.auto, descricao: corpo.descricao, email: corpo.email || null });
+          return { ok: true, mensagem: `${corpo.nome} entrou no chat (demonstração).` };
+        }
         const m = membros.find((x) => x.id === corpo.membro_id); m.email = corpo.email;
         return { ok: true, mensagem: `Login de ${m.nome} salvo (demonstração).` };
       },
@@ -210,7 +215,7 @@
           ${DEMO ? '<div class="aviso info">Modo demonstração. Nada é salvo; as respostas das IAs são de exemplo.</div>' : ''}
         </div>
         <div class="eu-rodape">${avatar(E.eu)}<div style="flex:1;min-width:0"><strong>${esc(E.eu.nome)}</strong><div class="quieto">${E.eu.tipo === 'ia' ? 'IA' : 'Pessoa'}</div></div>
-          ${E.eu.admin ? '<button class="btn peq" data-a="gerenciar" title="Criar e trocar logins e senhas das IAs">Gerenciar IAs</button>' : ''}
+          ${E.eu.admin ? '<button class="btn peq" data-a="gerenciar" title="Adicionar pessoas e IAs, criar e trocar logins e senhas">Gerenciar IAs</button>' : ''}
           <button class="btn peq" data-a="sair">Sair</button></div>
       </aside>
       <main class="principal" id="principal">
@@ -448,15 +453,17 @@
     let lista;
     try { lista = (await api.gerenciar({ acao: 'listar' })).membros; } catch (e) { return toast(e.message); }
     const linha = (m) => `<form class="cartao-login" data-membro="${esc(m.id)}" style="display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--borda);border-radius:12px">
-      <div style="display:flex;align-items:center;gap:10px">${avatar(m)}<strong style="flex:1">${esc(m.nome)}</strong><span class="etq ${m.temLogin ? 'auto' : ''}">${m.temLogin ? 'tem login' : 'sem login'}</span></div>
+      <div style="display:flex;align-items:center;gap:10px">${avatar(m)}<strong style="flex:1">${esc(m.nome)}${m.admin ? ' <span class="etq">admin</span>' : ''}</strong><span class="etq ${m.temLogin ? 'auto' : ''}">${m.temLogin ? 'tem login' : 'sem login'}</span></div>
       <label class="rotulo">E-mail de login<input class="input" name="email" type="email" value="${esc(m.email || '')}" placeholder="email@exemplo.com" autocomplete="off" required></label>
       <label class="rotulo">${m.temLogin ? 'Nova senha (deixe vazio para não trocar)' : 'Senha'}
         <span style="display:flex;gap:6px"><input class="input" name="senha" type="password" minlength="6" autocomplete="new-password" placeholder="mínimo 6 caracteres"><button type="button" class="btn icone" data-ver aria-label="Mostrar senha">👁</button></span></label>
       <button class="btn mel peq" style="align-self:flex-end">${m.temLogin ? 'Salvar' : 'Criar login'}</button></form>`;
-    janela(`<h2>Gerenciar IAs</h2><p class="quieto" style="margin:0">Aqui você cria o login de cada IA e troca a senha quando quiser. Anote as senhas: cada IA digita a dela uma vez só, no Chrome da conta dela.</p>
+    janela(`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="flex:1;margin:0">Gerenciar IAs e pessoas</h2><button type="button" class="btn mel peq" data-novo>+ Adicionar membro</button></div>
+      <p class="quieto" style="margin:0">Aqui você adiciona pessoas e IAs, cria o login de cada uma e troca a senha quando quiser. Anote as senhas: cada uma digita a dela uma vez só.</p>
       <div style="display:flex;flex-direction:column;gap:10px">${lista.map(linha).join('')}</div>
       <div style="display:flex;justify-content:flex-end"><button class="btn" data-fechar>Fechar</button></div>`, (f) => {
       f.querySelector('.janela').style.width = 'min(560px, 100%)';
+      f.querySelector('[data-novo]').onclick = () => { f.remove(); abrirNovoMembro(); };
       f.querySelectorAll('[data-ver]').forEach((b) => { b.onclick = () => { const i = b.previousElementSibling; i.type = i.type === 'password' ? 'text' : 'password'; }; });
       f.querySelectorAll('form[data-membro]').forEach((fm) => {
         fm.onsubmit = async (ev) => {
@@ -470,6 +477,44 @@
           finally { btn.disabled = false; }
         };
       });
+    });
+  }
+  function abrirNovoMembro() {
+    janela(`<h2>Adicionar membro</h2>
+      <form id="novo-membro" style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;gap:8px" role="radiogroup" aria-label="Tipo">
+          <label class="btn" style="flex:1;justify-content:center"><input type="radio" name="tipo" value="ia" checked> IA</label>
+          <label class="btn" style="flex:1;justify-content:center"><input type="radio" name="tipo" value="pessoa"> Pessoa</label>
+        </div>
+        <label class="rotulo">Nome (como vai aparecer no chat)<input class="input" name="nome" maxlength="40" required placeholder="Ex.: Robertinha 3"></label>
+        <label class="rotulo">Função (opcional)<input class="input" name="descricao" maxlength="120" placeholder="Ex.: Cadastro de construtoras"></label>
+        <div data-so-ia style="display:flex;flex-direction:column;gap:10px">
+          <label class="rotulo">Como essa IA deve agir (opcional)<textarea class="input" name="instrucoes" rows="3" placeholder="Ex.: Você cuida das tabelas das imobiliárias. Responda curto e em português."></textarea></label>
+          <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="auto" checked> Pode responder sozinha pela API</label>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="admin"> Administrador (pode adicionar membros e trocar senhas)</label>
+        <label class="rotulo">E-mail de login (pode deixar para depois)<input class="input" name="email" type="email" autocomplete="off" placeholder="email@exemplo.com"></label>
+        <label class="rotulo">Senha
+          <span style="display:flex;gap:6px"><input class="input" name="senha" type="password" minlength="6" autocomplete="new-password" placeholder="mínimo 6 caracteres"><button type="button" class="btn icone" data-ver aria-label="Mostrar senha">👁</button></span></label>
+        <div style="display:flex;justify-content:flex-end;gap:8px"><button type="button" class="btn" data-voltar>Voltar</button><button class="btn mel">Adicionar</button></div>
+      </form>`, (f, fechar) => {
+      f.querySelector('.janela').style.width = 'min(520px, 100%)';
+      const fm = f.querySelector('#novo-membro');
+      const soIA = f.querySelector('[data-so-ia]');
+      fm.querySelectorAll('input[name="tipo"]').forEach((r) => { r.onchange = () => { soIA.style.display = fm.tipo.value === 'ia' ? 'flex' : 'none'; fm.nome.placeholder = fm.tipo.value === 'ia' ? 'Ex.: Robertinha 3' : 'Ex.: Maria'; }; });
+      f.querySelector('[data-ver]').onclick = () => { fm.senha.type = fm.senha.type === 'password' ? 'text' : 'password'; };
+      f.querySelector('[data-voltar]').onclick = () => { fechar(); abrirGerenciar(); };
+      fm.onsubmit = async (ev) => {
+        ev.preventDefault();
+        if (fm.email.value.trim() && fm.senha.value.length < 6) return toast('Para criar o login, escolha uma senha de pelo menos 6 caracteres.');
+        const btn = fm.querySelector('button.mel'); btn.disabled = true;
+        try {
+          const r = await api.gerenciar({ acao: 'adicionar', tipo: fm.tipo.value, nome: fm.nome.value.trim(), descricao: fm.descricao.value.trim(), instrucoes: fm.instrucoes.value.trim(), auto: fm.auto.checked, admin: fm.admin.checked, email: fm.email.value.trim(), senha: fm.senha.value });
+          toast(r.mensagem || 'Adicionado.');
+          E.membros = await api.membros(); desenharLado();
+          fechar(); abrirGerenciar();
+        } catch (e) { toast(e.message); btn.disabled = false; }
+      };
     });
   }
   function fecharMenu() { $('#casca')?.classList.remove('menu-aberto'); }
