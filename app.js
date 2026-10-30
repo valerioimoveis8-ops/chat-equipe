@@ -52,7 +52,7 @@
         if (!s.session) return null;
         const { data: meuId, error: e1 } = await sb.rpc('meu_membro_id');
         if (e1) throw e1;
-        const { data, error } = meuId ? await sb.from('membros').select('id,nome,tipo,cor,auto,descricao').eq('id', meuId).maybeSingle() : { data: null, error: null };
+        const { data, error } = meuId ? await sb.from('membros').select('id,nome,tipo,cor,auto,descricao,admin').eq('id', meuId).maybeSingle() : { data: null, error: null };
         if (error) throw error;
         if (!data) { await sb.auth.signOut(); throw new Error('Este e-mail entrou, mas ainda não está cadastrado como membro do chat. Peça para o administrador incluir.'); }
         return data;
@@ -90,6 +90,11 @@
         const canal = sb.channel(`sala-${salaId}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensagens', filter: `sala_id=eq.${salaId}` }, (p) => aoChegar(p.new)).subscribe();
         return () => sb.removeChannel(canal);
       },
+      async gerenciar(corpo) {
+        const { data, error } = await sb.functions.invoke('gerenciar-membros', { body: corpo });
+        if (error) { let msg = error.message; try { msg = (await error.context.json()).erro || msg; } catch (e) { /* mantém */ } throw new Error(msg); }
+        return data;
+      },
       async pedirIA(salaId, membroId) {
         const { data, error } = await sb.functions.invoke('responder-ia', { body: { sala_id: salaId, membro_id: membroId } });
         if (error) { let msg = error.message; try { msg = (await error.context.json()).erro || msg; } catch (e) { /* mantém */ } throw new Error(msg); }
@@ -102,7 +107,7 @@
   function apiDemo() {
     const agora = Date.now(); const min = 6e4;
     const membros = [
-      { id: 'voce', nome: 'Você', tipo: 'pessoa', cor: '#F5B700', auto: false, descricao: 'Dono do Sistema Abelha' },
+      { id: 'voce', nome: 'Você', tipo: 'pessoa', cor: '#F5B700', auto: false, descricao: 'Dono do Sistema Abelha', admin: true, email: 'voce@exemplo.com' },
       { id: 'rob1', nome: 'Robertinha 1', tipo: 'ia', cor: '#FB923C', auto: true, descricao: 'Cadastro de construtoras' },
       { id: 'rob2', nome: 'Robertinha 2', tipo: 'ia', cor: '#F472B6', auto: true, descricao: 'Cadastro de construtoras' },
       { id: 'ze1', nome: 'Zé 1', tipo: 'ia', cor: '#60A5FA', auto: true, descricao: 'Imobiliárias' },
@@ -146,6 +151,11 @@
       },
       async urlAnexo(path) { return urls.get(path) || ''; },
       ouvir(salaId, f) { ouvintes.set(salaId, [...(ouvintes.get(salaId) || []), f]); return () => ouvintes.set(salaId, (ouvintes.get(salaId) || []).filter((x) => x !== f)); },
+      async gerenciar(corpo) {
+        if (corpo.acao === 'listar') return { membros: membros.map((m) => ({ ...m, email: m.email || null, temLogin: !!m.email })) };
+        const m = membros.find((x) => x.id === corpo.membro_id); m.email = corpo.email;
+        return { ok: true, mensagem: `Login de ${m.nome} salvo (demonstração).` };
+      },
       async pedirIA(salaId, membroId) {
         await new Promise((r) => setTimeout(r, 1300));
         const m = { id: ++seq, sala_id: salaId, membro_id: membroId, texto: `${respostas[seq % respostas.length]}\n\n(resposta de demonstração; com a chave da API, a IA responde de verdade)`, criada_em: new Date().toISOString(), via: 'api' };
@@ -200,6 +210,7 @@
           ${DEMO ? '<div class="aviso info">Modo demonstração. Nada é salvo; as respostas das IAs são de exemplo.</div>' : ''}
         </div>
         <div class="eu-rodape">${avatar(E.eu)}<div style="flex:1;min-width:0"><strong>${esc(E.eu.nome)}</strong><div class="quieto">${E.eu.tipo === 'ia' ? 'IA' : 'Pessoa'}</div></div>
+          ${E.eu.admin ? '<button class="btn peq" data-a="gerenciar" title="Criar e trocar logins e senhas das IAs">Gerenciar IAs</button>' : ''}
           <button class="btn peq" data-a="sair">Sair</button></div>
       </aside>
       <main class="principal" id="principal">
@@ -433,6 +444,34 @@
     aoMontar && aoMontar(f, fechar);
     (f.querySelector('input,button.mel,button') || f).focus();
   }
+  async function abrirGerenciar() {
+    let lista;
+    try { lista = (await api.gerenciar({ acao: 'listar' })).membros; } catch (e) { return toast(e.message); }
+    const linha = (m) => `<form class="cartao-login" data-membro="${esc(m.id)}" style="display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--borda);border-radius:12px">
+      <div style="display:flex;align-items:center;gap:10px">${avatar(m)}<strong style="flex:1">${esc(m.nome)}</strong><span class="etq ${m.temLogin ? 'auto' : ''}">${m.temLogin ? 'tem login' : 'sem login'}</span></div>
+      <label class="rotulo">E-mail de login<input class="input" name="email" type="email" value="${esc(m.email || '')}" placeholder="email@exemplo.com" autocomplete="off" required></label>
+      <label class="rotulo">${m.temLogin ? 'Nova senha (deixe vazio para não trocar)' : 'Senha'}
+        <span style="display:flex;gap:6px"><input class="input" name="senha" type="password" minlength="6" autocomplete="new-password" placeholder="mínimo 6 caracteres"><button type="button" class="btn icone" data-ver aria-label="Mostrar senha">👁</button></span></label>
+      <button class="btn mel peq" style="align-self:flex-end">${m.temLogin ? 'Salvar' : 'Criar login'}</button></form>`;
+    janela(`<h2>Gerenciar IAs</h2><p class="quieto" style="margin:0">Aqui você cria o login de cada IA e troca a senha quando quiser. Anote as senhas: cada IA digita a dela uma vez só, no Chrome da conta dela.</p>
+      <div style="display:flex;flex-direction:column;gap:10px">${lista.map(linha).join('')}</div>
+      <div style="display:flex;justify-content:flex-end"><button class="btn" data-fechar>Fechar</button></div>`, (f) => {
+      f.querySelector('.janela').style.width = 'min(560px, 100%)';
+      f.querySelectorAll('[data-ver]').forEach((b) => { b.onclick = () => { const i = b.previousElementSibling; i.type = i.type === 'password' ? 'text' : 'password'; }; });
+      f.querySelectorAll('form[data-membro]').forEach((fm) => {
+        fm.onsubmit = async (ev) => {
+          ev.preventDefault();
+          const btn = fm.querySelector('button.mel'); btn.disabled = true;
+          try {
+            const r = await api.gerenciar({ acao: 'definir_login', membro_id: fm.dataset.membro, email: fm.email.value.trim(), senha: fm.senha.value });
+            toast(r.mensagem || 'Salvo.'); fm.senha.value = '';
+            const etq = fm.querySelector('.etq'); etq.textContent = 'tem login'; etq.classList.add('auto'); btn.textContent = 'Salvar';
+          } catch (e) { toast(e.message); }
+          finally { btn.disabled = false; }
+        };
+      });
+    });
+  }
   function fecharMenu() { $('#casca')?.classList.remove('menu-aberto'); }
 
   // ---------- cliques ----------
@@ -448,6 +487,7 @@
     else if (a === 'sug') escolherSug(membro(el.dataset.id));
     else if (a === 'mencionar') { const m = membro(el.dataset.id); const ta = $('#texto'); ta.value = `${ta.value}${ta.value && !ta.value.endsWith(' ') ? ' ' : ''}@${m.nome} `; ta.focus(); fecharMenu(); }
     else if (a === 'ver-imagem') { e.preventDefault(); janela(`<img class="zoom" src="${esc(el.src)}" alt="${esc(el.alt)}"><div style="display:flex;gap:8px;justify-content:flex-end"><a class="btn" href="${esc(el.src)}" target="_blank" rel="noopener">Abrir em outra aba</a><button class="btn mel" data-fechar>Fechar</button></div>`); $('.janela').style.width = 'auto'; }
+    else if (a === 'gerenciar') abrirGerenciar();
     else if (a === 'sair') { await api.sair(); E.eu = null; if (E.pararDeOuvir) E.pararDeOuvir(); telaEntrada(); }
     else if (a === 'nova-sala') {
       janela(`<h2>Nova sala</h2><form id="f-sala" style="display:flex;flex-direction:column;gap:12px"><label class="rotulo">Nome da sala<input class="input" id="nome-sala" required maxlength="40" placeholder="Ex.: Lançamentos"></label><div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn" data-fechar>Cancelar</button><button class="btn mel">Criar</button></div></form>`, (f, fechar) => {
