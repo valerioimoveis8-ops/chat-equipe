@@ -383,44 +383,65 @@
   // 1) Ditado: você fala e vira texto na caixa (as IAs conseguem ler).
   let ditado = null; let ditadoLigado = false;
   const CELULAR = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+  // Arruma a frase falada: comandos de pontuação ditos em voz alta, maiúscula no começo e ponto no fim.
+  function pontuar(t, fim) {
+    let x = ` ${t} `;
+    const trocas = [
+      [/\s+ponto de interroga[cç][aã]o\s+/gi, '? '], [/\s+interroga[cç][aã]o\s+/gi, '? '],
+      [/\s+ponto de exclama[cç][aã]o\s+/gi, '! '], [/\s+exclama[cç][aã]o\s+/gi, '! '],
+      [/\s+dois pontos\s+/gi, ': '], [/\s+ponto e v[ií]rgula\s+/gi, '; '],
+      [/\s+v[ií]rgula\s+/gi, ', '], [/\s+ponto final\s+/gi, '. '], [/\s+ponto par[aá]grafo\s+/gi, '.\n'],
+      [/\s+(nova linha|pr[oó]xima linha|par[aá]grafo)\s+/gi, '\n'],
+    ];
+    for (const [re, por] of trocas) x = x.replace(re, por);
+    x = x.replace(/\s+([,.;:?!])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
+    x = x.replace(/(^|[.?!]\s+|\n)(\p{Ll})/gu, (m, a, l) => a + l.toUpperCase());
+    if (fim && x && !/[.?!:,;\n]$/.test(x)) x += '.';
+    return x;
+  }
+  function pararDitado() { if (ditado) { ditadoLigado = false; try { ditado.abort(); } catch (e) { /* já parou */ } } }
   function alternarDitado() {
     const btn = $('#btn-ditar');
     if (ditado) { ditadoLigado = false; ditado.stop(); return; }
     const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Rec) return toast('Este navegador não transforma voz em texto. Use o Chrome ou grave um áudio.');
     const ta = $('#texto');
-    let base = ta.value ? `${ta.value.replace(/\s+$/, '')} ` : '';
-    let trecho = '';
-    const juntar = (a, b) => (a && b ? `${a.replace(/\s+$/, '')} ${b.replace(/^\s+/, '')}` : a + b);
+    let base = ''; let trecho = ''; let escrevendo = false;
+    const juntar = (x, y) => (x && y ? (/\n$/.test(x) ? x + y : `${x.replace(/\s+$/, '')} ${y.replace(/^\s+/, '')}`) : x + y);
+    const mostrar = () => { escrevendo = true; ta.value = juntar(base, trecho); ta.dispatchEvent(new Event('input')); escrevendo = false; };
+    // Se você apagar ou mudar o texto enquanto fala, o ditado passa a seguir o que ficou na caixa.
+    const aoEditar = () => { if (escrevendo || !ditado) return; base = ta.value; trecho = ''; try { ditado.abort(); } catch (e) { /* religa no onend */ } };
+    ta.addEventListener('input', aoEditar);
     const comecar = () => {
+      base = ta.value; trecho = '';
       ditado = new Rec(); ditado.lang = 'pt-BR'; ditado.interimResults = true;
       // No celular, o modo contínuo repete palavras; lá ouvimos uma frase por vez e religamos sozinhos.
       ditado.continuous = !CELULAR; ditado.maxAlternatives = 1;
-      trecho = '';
       ditado.onresult = (e) => {
         let fin = ''; let parcial = '';
         for (let i = 0; i < e.results.length; i++) {
           const t = e.results[i][0].transcript.trim();
           if (!t) continue;
-          if (e.results[i].isFinal) fin = juntar(fin, t); else parcial = juntar(parcial, t);
+          if (e.results[i].isFinal) fin = juntar(fin, pontuar(t, true)); else parcial = juntar(parcial, t);
         }
         trecho = juntar(fin, parcial);
-        ta.value = juntar(base, trecho); ta.dispatchEvent(new Event('input'));
+        if (/[.?!]$/.test(base.trim()) || !base.trim()) trecho = trecho.replace(/^\p{Ll}/u, (l) => l.toUpperCase());
+        mostrar();
       };
       ditado.onerror = (e) => {
         if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { ditadoLigado = false; toast('Libere o microfone no cadeado ao lado do endereço do site.'); }
       };
       ditado.onend = () => {
-        if (trecho) { base = `${juntar(base, trecho)} `; trecho = ''; }
         if (ditadoLigado) { try { comecar(); return; } catch (e) { /* para */ } }
-        ditado = null; btn.classList.remove('gravando'); btn.setAttribute('aria-pressed', 'false');
-        ta.value = ta.value.replace(/\s+$/, ''); toast('Ditado parado. Confira o texto e clique em Enviar.');
+        ditado = null; ta.removeEventListener('input', aoEditar);
+        btn.classList.remove('gravando'); btn.setAttribute('aria-pressed', 'false');
+        if (ta.value.trim()) { escrevendo = true; ta.value = ta.value.replace(/\s+$/, ''); escrevendo = false; toast('Ditado parado. Confira o texto e clique em Enviar.'); }
       };
       ditado.start();
     };
     ditadoLigado = true; comecar();
     btn.classList.add('gravando'); btn.setAttribute('aria-pressed', 'true');
-    toast('Pode falar. Toque no microfone de novo para parar.');
+    toast('Pode falar. Diga "vírgula", "ponto" ou "interrogação" para pontuar. Toque no microfone para parar.');
   }
   // 2) Mensagem de áudio: grava e envia como áudio (bom para pessoas; as IAs leem só texto).
   let gravador = null;
@@ -465,6 +486,7 @@
   async function enviar() {
     const ta = $('#texto'); const texto = ta.value.trim(); const arquivo = E.arquivo;
     if (!texto && !arquivo) return;
+    pararDitado();
     pedirPermissaoAviso();
     const b = $('#btn-enviar'); b.disabled = true;
     try {
