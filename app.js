@@ -232,7 +232,7 @@
             <button type="button" class="btn icone" data-a="anexar" aria-label="Anexar imagem ou documento"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/></svg></button>
             <button type="button" class="btn icone" data-a="ditar" id="btn-ditar" aria-label="Falar e virar texto" title="Falar e virar texto (as IAs leem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
             <button type="button" class="btn icone" data-a="gravar" id="btn-gravar" aria-label="Gravar mensagem de áudio" title="Gravar mensagem de áudio"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6" fill="currentColor"/></svg></button>
-            <textarea id="texto" rows="1" placeholder="Escreva uma mensagem. Use @ para chamar alguém." aria-label="Mensagem"></textarea>
+            <textarea id="texto" rows="1" placeholder="Escreva uma mensagem. Use @ para chamar alguém ou @todas para chamar todas as IAs." aria-label="Mensagem"></textarea>
             <button class="btn mel" id="btn-enviar">Enviar</button>
           </div>
         </form>
@@ -259,8 +259,39 @@
     E.pararDeOuvir = api.ouvir(id, (m) => {
       if (E.msgs.some((x) => x.id === m.id)) return;
       E.msgs.push(m); E.pensando.delete(m.membro_id); atualizarPensando(); desenharMensagens(true);
+      if (m.membro_id !== E.eu.id) avisarChegada(m);
     });
     fecharMenu();
+  }
+
+  // ---------- aviso de mensagem nova (som + notificação + contador na aba) ----------
+  let naoLidas = 0; const tituloBase = document.title;
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { naoLidas = 0; document.title = tituloBase; } });
+  function bip() {
+    try {
+      const ac = bip.ac || (bip.ac = new (window.AudioContext || window.webkitAudioContext)());
+      [880, 1175].forEach((f, i) => {
+        const o = ac.createOscillator(); const g = ac.createGain(); const t = ac.currentTime + i * 0.16;
+        o.frequency.value = f; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+        o.connect(g).connect(ac.destination); o.start(t); o.stop(t + 0.16);
+      });
+    } catch (e) { /* sem som */ }
+  }
+  function pedirPermissaoAviso() {
+    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch (e) { /* ignora */ }
+  }
+  function avisarChegada(m) {
+    const au = membro(m.membro_id);
+    const meChamou = m.texto && (norm(m.texto).includes(`@${norm(E.eu.nome)}`) || /@(todas|todos|equipe)\b/i.test(norm(m.texto)));
+    if (!document.hidden && !meChamou) return;
+    bip();
+    if (document.hidden) { naoLidas++; document.title = `(${naoLidas}) ${tituloBase}`; }
+    try {
+      if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+        const n = new Notification(`${au.nome} · #${E.sala.nome}`, { body: m.texto ? m.texto.slice(0, 140) : `Enviou ${m.anexo_nome || 'um anexo'}`, tag: `chat-${m.id}` });
+        n.onclick = () => { window.focus(); n.close(); };
+      }
+    } catch (e) { /* sem notificação */ }
   }
 
   function desenharMensagens(rolar) {
@@ -396,6 +427,7 @@
   async function enviar() {
     const ta = $('#texto'); const texto = ta.value.trim(); const arquivo = E.arquivo;
     if (!texto && !arquivo) return;
+    pedirPermissaoAviso();
     const b = $('#btn-enviar'); b.disabled = true;
     try {
       const m = await api.enviar({ salaId: E.sala.id, texto, arquivo, eu: E.eu });
@@ -403,7 +435,8 @@
       ta.value = ''; ta.style.height = 'auto'; E.arquivo = null; $('#previa').innerHTML = '';
       // Chama as IAs com resposta automática que foram mencionadas.
       if (CFG.iaAutomatica !== false && texto) {
-        const chamadas = E.membros.filter((x) => x.tipo === 'ia' && x.auto && x.id !== E.eu.id && norm(texto).includes(`@${norm(x.nome)}`));
+        const todas = /@(todas|todos|equipe)\b/i.test(norm(texto));
+        const chamadas = E.membros.filter((x) => x.tipo === 'ia' && x.auto && x.id !== E.eu.id && (todas || norm(texto).includes(`@${norm(x.nome)}`)));
         chamadas.forEach((ia) => pedirResposta(ia.id));
       }
     } catch (e) { toast(e.message); }
