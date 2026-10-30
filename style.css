@@ -131,3 +131,11 @@ a { color: var(--mel); }
   .lista { padding: 14px 12px 8px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* Voz */
+.btn.gravando { background: var(--vermelho); border-color: var(--vermelho); color: #fff; animation: pulso 1.2s infinite; }
+@keyframes pulso { 50% { box-shadow: 0 0 0 6px rgba(248,113,113,.25); } }
+.anexo-audio { display: block; margin: 4px 0; width: min(300px, 100%); height: 40px; }
+#btn-gravar { color: var(--vermelho); }
+@media (max-width: 760px) { .compor .linha { flex-wrap: wrap; } .compor textarea { flex-basis: 100%; order: -1; } }
+#btn-gravar.gravando { color: #fff; }

@@ -214,6 +214,8 @@
           <div id="previa"></div>
           <div class="linha">
             <button type="button" class="btn icone" data-a="anexar" aria-label="Anexar imagem ou documento"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/></svg></button>
+            <button type="button" class="btn icone" data-a="ditar" id="btn-ditar" aria-label="Falar e virar texto" title="Falar e virar texto (as IAs leem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+            <button type="button" class="btn icone" data-a="gravar" id="btn-gravar" aria-label="Gravar mensagem de áudio" title="Gravar mensagem de áudio"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6" fill="currentColor"/></svg></button>
             <textarea id="texto" rows="1" placeholder="Escreva uma mensagem. Use @ para chamar alguém." aria-label="Mensagem"></textarea>
             <button class="btn mel" id="btn-enviar">Enviar</button>
           </div>
@@ -259,7 +261,9 @@
       ultAutor = m.membro_id; ultHora = t;
       let anexo = '';
       if (m.anexo_path) {
-        anexo = ehImagem(m.anexo_tipo)
+        anexo = /^audio\//.test(m.anexo_tipo || '')
+          ? `<audio class="anexo-audio" controls preload="none" data-path="${esc(m.anexo_path)}"></audio>`
+          : ehImagem(m.anexo_tipo)
           ? `<img class="anexo-img" data-path="${esc(m.anexo_path)}" alt="${esc(m.anexo_nome)}" data-a="ver-imagem">`
           : `<a class="anexo-doc" data-path="${esc(m.anexo_path)}" href="#" target="_blank" rel="noopener"><span class="ext">${esc((m.anexo_nome || '').split('.').pop().slice(0, 4))}</span><span style="min-width:0"><span class="nm" style="display:block">${esc(m.anexo_nome)}</span><span class="quieto">${m.anexo_tamanho ? tamanho(m.anexo_tamanho) : ''} · Abrir</span></span></a>`;
       }
@@ -274,7 +278,7 @@
     lista.innerHTML = html;
     lista.querySelectorAll('[data-path]').forEach(async (el) => {
       const url = DEMO && el.dataset.path === 'demo' ? '' : await api.urlAnexo(el.dataset.path);
-      if (el.tagName === 'IMG') { if (url) el.src = url; }
+      if (el.tagName === 'IMG' || el.tagName === 'AUDIO') { if (url) el.src = url; }
       else if (url) el.href = url; else { el.removeAttribute('href'); el.title = 'Arquivo de exemplo'; }
     });
     if (rolar || perto) lista.scrollTop = lista.scrollHeight;
@@ -308,6 +312,59 @@
     pr.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); if (!$('.soltar')) pr.insertAdjacentHTML('beforeend', '<div class="soltar">Solte aqui para enviar</div>'); } });
     pr.addEventListener('dragleave', (e) => { if (e.target === pr || !pr.contains(e.relatedTarget)) $('.soltar')?.remove(); });
     pr.addEventListener('drop', (e) => { e.preventDefault(); $('.soltar')?.remove(); const f = e.dataTransfer.files[0]; if (f) escolherArquivo(f); });
+  }
+
+  // ---------- voz ----------
+  // 1) Ditado: você fala e vira texto na caixa (as IAs conseguem ler).
+  let ditado = null;
+  function alternarDitado() {
+    const btn = $('#btn-ditar');
+    if (ditado) { ditado.stop(); return; }
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Rec) return toast('Este navegador não transforma voz em texto. Use o Chrome ou grave um áudio.');
+    const ta = $('#texto'); const base = ta.value ? `${ta.value.replace(/\s+$/, '')} ` : '';
+    ditado = new Rec(); ditado.lang = 'pt-BR'; ditado.continuous = true; ditado.interimResults = true;
+    let final = '';
+    ditado.onresult = (e) => {
+      let parcial = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += e.results[i][0].transcript; else parcial += e.results[i][0].transcript;
+      }
+      ta.value = base + final + parcial; ta.dispatchEvent(new Event('input'));
+    };
+    ditado.onerror = (e) => { if (e.error === 'not-allowed') toast('Libere o microfone no cadeado ao lado do endereço do site.'); };
+    ditado.onend = () => { ditado = null; btn.classList.remove('gravando'); btn.setAttribute('aria-pressed', 'false'); toast('Ditado parado. Confira o texto e clique em Enviar.'); };
+    ditado.start(); btn.classList.add('gravando'); btn.setAttribute('aria-pressed', 'true');
+    toast('Pode falar. Clique no microfone de novo para parar.');
+  }
+  // 2) Mensagem de áudio: grava e envia como áudio (bom para pessoas; as IAs leem só texto).
+  let gravador = null;
+  async function alternarGravacao() {
+    const btn = $('#btn-gravar');
+    if (gravador) { gravador.stop(); return; }
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast('Este navegador não grava áudio.');
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { return toast('Libere o microfone no cadeado ao lado do endereço do site.'); }
+    const tipo = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
+    const partes = []; const inicio = Date.now();
+    gravador = new MediaRecorder(stream, tipo ? { mimeType: tipo } : undefined);
+    gravador.ondataavailable = (e) => { if (e.data.size) partes.push(e.data); };
+    gravador.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop()); clearInterval(relogio);
+      btn.classList.remove('gravando'); btn.setAttribute('aria-pressed', 'false'); btn.title = 'Gravar mensagem de áudio';
+      gravador = null;
+      if (Date.now() - inicio < 800) return toast('Áudio curto demais.');
+      const mime = (tipo || 'audio/webm').split(';')[0];
+      const ext = mime.includes('mp4') ? 'm4a' : mime.includes('ogg') ? 'ogg' : 'webm';
+      const agora = new Date();
+      const arq = new File(partes, `audio-${agora.toLocaleDateString('pt-BR').replace(/\//g, '-')}-${agora.toLocaleTimeString('pt-BR').replace(/:/g, 'h')}.${ext}`, { type: mime });
+      escolherArquivo(arq);
+      toast('Áudio pronto. Clique em Enviar.');
+    };
+    gravador.start(); btn.classList.add('gravando'); btn.setAttribute('aria-pressed', 'true');
+    const relogio = setInterval(() => { const s2 = Math.round((Date.now() - inicio) / 1000); btn.title = `Gravando ${s2}s — clique para parar`; }, 500);
+    toast('Gravando… clique no botão vermelho de novo para parar.');
   }
 
   function escolherArquivo(f) {
@@ -385,6 +442,8 @@
     if (a === 'sala') trocarSala(Number(el.dataset.id));
     else if (a === 'menu') $('#casca').classList.toggle('menu-aberto');
     else if (a === 'anexar') $('#arquivo').click();
+    else if (a === 'ditar') alternarDitado();
+    else if (a === 'gravar') alternarGravacao();
     else if (a === 'tirar-anexo') { E.arquivo = null; $('#previa').innerHTML = ''; }
     else if (a === 'sug') escolherSug(membro(el.dataset.id));
     else if (a === 'mencionar') { const m = membro(el.dataset.id); const ta = $('#texto'); ta.value = `${ta.value}${ta.value && !ta.value.endsWith(' ') ? ' ' : ''}@${m.nome} `; ta.focus(); fecharMenu(); }
