@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abelha Fotos</title>
+<meta name="theme-color" content="#111111">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icone-192.png">
+<link rel="apple-touch-icon" href="icone-192.png">
+<style>
+  :root{--am:#FFD400;--pr:#111;--cz:#f4f4f4;--vd:#1b5e20;--vm:#c62828}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#fff;color:#222}
+  header{background:var(--pr);color:var(--am);padding:14px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:5}
+  header h1{font-size:20px;margin:0;flex:1}
+  header small{color:#bbb;font-size:12px}
+  main{padding:12px 16px 90px;max-width:820px;margin:0 auto}
+  .card{background:var(--cz);border-radius:12px;padding:12px;margin:10px 0}
+  label{font-weight:600;font-size:14px;display:block;margin-bottom:6px}
+  input[type=text],input[type=search],input[type=password]{width:100%;padding:11px;font-size:16px;border:1px solid #ccc;border-radius:10px;background:#fff}
+  button{font-size:15px;border:0;border-radius:10px;padding:10px 14px;background:#e6e6e6;color:#111;cursor:pointer}
+  button.am{background:var(--am);font-weight:700}
+  button.pq{padding:7px 10px;font-size:13px}
+  .linha{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center}
+  .link{background:#fff;border:1px solid #e3e3e3;border-radius:12px;padding:10px 12px;margin:8px 0}
+  .topo{display:flex;align-items:center;gap:10px}
+  .topo .nome{flex:1;font-weight:700;font-size:16px;overflow-wrap:anywhere}
+  .play{background:var(--am);font-weight:700;padding:9px 14px}
+  .info{font-size:13px;color:#555;margin-top:4px;overflow-wrap:anywhere}
+  .st{font-size:13px;margin-top:4px}
+  .acoes{display:none;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .link.aberto .acoes{display:flex}
+  .msg{position:fixed;left:0;right:0;bottom:0;background:var(--pr);color:#fff;padding:12px 16px;font-size:14px;display:flex;gap:10px;align-items:center}
+  .msg .gira{width:16px;height:16px;border:3px solid #555;border-top-color:var(--am);border-radius:50%;animation:g 1s linear infinite;display:none;flex:none}
+  .msg.ocupado .gira{display:block}
+  @keyframes g{to{transform:rotate(360deg)}}
+  .erro{border-left:5px solid var(--vm);background:#fff3f3;border-radius:8px;padding:10px;margin:8px 0;font-size:14px}
+  .erro b{color:var(--vm)}
+  .fazer{color:var(--vd);font-weight:600}
+  .abas{display:flex;gap:6px;margin:6px 0 4px}
+  .abas button{flex:1}
+  .abas button.on{background:var(--pr);color:var(--am)}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-end;justify-content:center;z-index:9}
+  .modal.on{display:flex}
+  .caixa{background:#fff;width:100%;max-width:820px;max-height:85vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px}
+  .op{display:block;width:100%;text-align:left;margin:6px 0;background:var(--cz)}
+  ul.im{padding-left:18px;font-size:13px;margin:6px 0}
+  .vazio{color:#777;text-align:center;padding:20px}
+  #telaPin{max-width:420px;margin:40px auto;padding:0 16px;text-align:center}
+</style>
+</head>
+<body>
+<header><h1>🐝 Abelha Fotos</h1><small id="ver"></small></header>
+
+<div id="telaPin" style="display:none">
+  <h2>Digite a senha</h2>
+  <p class="info">Só precisa fazer isso uma vez neste aparelho.</p>
+  <input id="pin" type="password" inputmode="numeric" placeholder="Senha" onkeydown="if(event.key==='Enter')entrar()">
+  <div class="linha" style="justify-content:center"><button class="am" onclick="entrar()">Entrar</button></div>
+</div>
+
+<main id="app" style="display:none">
+  <div class="card">
+    <label for="url">Cole o link da tabela (tabeladeimoveis.com.br/...)</label>
+    <input id="url" type="text" inputmode="url" placeholder="https://tabeladeimoveis.com.br/empresa">
+    <div class="linha"><button class="am" onclick="adicionar()">➕ Adicionar</button></div>
+  </div>
+
+  <div class="abas">
+    <button id="abaL" class="on" onclick="aba('L')">📸 Links</button>
+    <button id="abaE" onclick="aba('E')">⚠ Erros <span id="nErros"></span></button>
+  </div>
+
+  <section id="secL">
+    <input id="busca" type="search" placeholder="🔎 Pesquisar empresa..." oninput="desenhar()">
+    <div class="linha">
+      <button class="am" onclick="todos()">▶ Executar todos</button>
+      <button onclick="atualizar()">🔄</button>
+      <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0">
+        <input type="checkbox" id="auto" onchange="auto(this.checked)"> Todo dia às 6h</label>
+    </div>
+    <div id="qtd" class="info"></div>
+    <div id="lista"></div>
+  </section>
+
+  <section id="secE" style="display:none">
+    <div class="linha"><button onclick="limparErros()">🧹 Limpar erros</button><button onclick="sair()">🔒 Sair (esquecer senha)</button></div>
+    <div id="erros"></div>
+  </section>
+</main>
+<div class="msg" id="msg"><div class="gira"></div><span id="msgT">Carregando...</span></div>
+<div class="modal" id="modal" onclick="if(event.target===this)fechar()"><div class="caixa" id="caixa"></div></div>
+
+<script>
+// ---------------------------------------------------------------- conexão com o Google (conta sistemaabelha60)
+var API = 'https://script.google.com/macros/s/AKfycbzjlKI-zJBwF8X88nUjdJEAmOYgI5ZIoaeVq9c1BJa8aWZsmvffmmclhrk_93MU0l-E/exec';
+function lerPin(){ try { return localStorage.getItem('abelhaPin') || '' } catch(e){ return window._pin || '' } }
+function gravarPin(p){ window._pin = p; try { localStorage.setItem('abelhaPin', p) } catch(e){} }
+function chamarApi(fn, args){
+  var u = API + '?fn=' + encodeURIComponent(fn) + '&pin=' + encodeURIComponent(lerPin()) + '&args=' + encodeURIComponent(JSON.stringify(args || []));
+  return fetch(u, { credentials: 'omit' }).then(function(r){ return r.json() }).then(function(j){
+    if (j.erro) { if (j.erro === 'PIN errado') { pedirPin('Senha errada. Tente de novo.') } throw new Error(j.erro) }
+    return j.r;
+  });
+}
+// imita o google.script.run para o resto da página
+var google = { script: {} };
+Object.defineProperty(google.script, 'run', { get: function(){
+  var ok = function(){}, fail = function(e){ alert('⚠ ' + (e.message || e)) };
+  var px = new Proxy({}, { get: function(t, k){
+    if (k === 'withSuccessHandler') return function(f){ ok = f; return px };
+    if (k === 'withFailureHandler') return function(f){ fail = f; return px };
+    return function(){ var a = [].slice.call(arguments); chamarApi(k, a).then(function(r){ ok(r) }, function(e){ fail(e) }) };
+  }});
+  return px;
+}});
+
+// ---------------------------------------------------------------- tela
+var E = {links:[], erros:[]}, aberto = null, _cp = [];
+function $(i){return document.getElementById(i)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function msg(t, ocupado){ $('msgT').textContent=t; $('msg').classList.toggle('ocupado',!!ocupado) }
+function pedirPin(texto){ $('app').style.display='none'; $('telaPin').style.display=''; if(texto) msg(texto); else msg('Digite a senha.'); $('pin').focus() }
+function entrar(){ var p=$('pin').value.trim(); if(!p) return; gravarPin(p); $('telaPin').style.display='none'; $('app').style.display=''; atualizar() }
+function sair(){ if(!confirm('Esquecer a senha neste aparelho?')) return; gravarPin(''); try{localStorage.removeItem('abelhaPin')}catch(e){} pedirPin() }
+function chamar(fn, args, ok, texto){
+  msg(texto||'Trabalhando...', true);
+  var r = google.script.run.withSuccessHandler(function(x){ msg('Pronto.'); if(ok) ok(x) })
+    .withFailureHandler(function(e){ msg('⚠ '+(e.message||e)); if((e.message||'')!=='PIN errado') alert('⚠ '+(e.message||e)); });
+  r[fn].apply(r, args||[]);
+}
+function aplicar(x){ E = x; $('ver').textContent='v'+x.versao; $('auto').checked=!!x.auto;
+  $('nErros').textContent = x.erros.length?'('+x.erros.length+')':''; desenhar(); desenharErros();
+  if (x.fila) msg('⏳ '+x.fila+' link(s) na fila - continua sozinho, pode fechar a página.', true) }
+function atualizar(){ chamar('estado', [], aplicar, 'Carregando...') }
+function aba(a){ $('secL').style.display=a==='L'?'':'none'; $('secE').style.display=a==='E'?'':'none';
+  $('abaL').classList.toggle('on',a==='L'); $('abaE').classList.toggle('on',a==='E') }
+function norm(s){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase()}
+function desenhar(){
+  var t = norm($('busca').value), h = '', vis = 0;
+  E.links.forEach(function(l, i){
+    if (t && norm([l.empresa,l.url,l.pastaNome,l.status].join(' ')).indexOf(t)<0) return;
+    vis++;
+    h += '<div class="link'+(aberto===l.url?' aberto':'')+'">'
+      + '<div class="topo"><div class="nome" onclick="abrir('+i+')">'+esc(l.empresa||l.url)+'</div>'
+      + '<button class="play" onclick="um('+i+')">▶</button></div>'
+      + '<div class="info" onclick="abrir('+i+')">'+l.qtd_imoveis+' imóveis · '+l.qtd_fotos+' fotos · '+esc(l.ultima)+'</div>'
+      + '<div class="st">'+esc(l.status)+'</div>'
+      + '<div class="acoes">'
+      +   '<div class="info" style="width:100%">📁 '+esc(l.categoria)+' / '+esc(l.pastaNome)+'<br>🔗 '+esc(l.url)+'</div>'
+      +   '<button class="pq" onclick="verImoveis('+i+')">🏠 Ver imóveis</button>'
+      +   '<button class="pq" onclick="trocar('+i+')">📁 Trocar pasta</button>'
+      +   '<button class="pq" onclick="remover('+i+')">🗑 Remover</button>'
+      + '</div></div>';
+  });
+  $('lista').innerHTML = h || '<div class="vazio">'+(E.links.length?'Nada encontrado.':'Nenhum link ainda. Cole um link lá em cima.')+'</div>';
+  $('qtd').textContent = t ? vis+' de '+E.links.length+' link(s)' : E.links.length+' link(s)';
+}
+function abrir(i){ var u=E.links[i].url; aberto = aberto===u?null:u; desenhar() }
+function textoErro(e){ return e.numero+' | '+e.codigo+' '+e.titulo+' | '+e.onde+' | '+e.mensagem }
+function desenharErros(){
+  _cp = [];
+  $('erros').innerHTML = E.erros.map(function(e){
+    _cp.push(textoErro(e)); var k=_cp.length-1;
+    return '<div class="erro"><b>'+esc(e.codigo)+' · '+esc(e.titulo)+'</b><br>'+esc(e.explicacao)
+      +'<br><span class="fazer">👉 '+esc(e.fazer)+'</span><br><small>'+esc(e.onde)+'<br>'+esc(e.mensagem)+'<br>'
+      +esc(e.quando)+' · <b>'+esc(e.numero)+'</b></small><div class="linha"><button class="pq" onclick="copiar(_cp['+k+'])">📋 Copiar</button></div></div>';
+  }).join('') || '<div class="vazio">Nenhum erro. 🎉</div>';
+}
+function copiar(t){ (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){msg('Copiado! Cole no chat.')},function(){prompt('Copie:',t)}) }
+var _erroAtual='';
+function mostrarErro(e){
+  _erroAtual = textoErro(e);
+  modal('<h3 style="color:#c62828;margin-top:0">⚠ '+esc(e.codigo)+' - '+esc(e.titulo)+'</h3><p>'+esc(e.explicacao)+'</p><p class="fazer">👉 '+esc(e.fazer)+'</p>'
+    +'<p style="font-size:13px;color:#555">'+esc(e.onde)+'<br>'+esc(e.mensagem)+'</p><p><b>'+esc(e.numero)+'</b></p>'
+    +'<div class="linha"><button class="am" onclick="copiar(_erroAtual)">📋 Copiar</button><button onclick="fechar()">OK</button></div>');
+}
+function modal(h){ $('caixa').innerHTML=h; $('modal').classList.add('on') }
+function fechar(){ $('modal').classList.remove('on') }
+
+function adicionar(){
+  var u = $('url').value.trim(); if(!u) return;
+  chamar('analisarLink', [u], function(r){
+    if (r.erro){ atualizar(); return mostrarErro(r.erro) }
+    if (r.candidatos.length===1) return confirmar(r.url, r.empresa, r.candidatos[0].id);
+    escolherPasta('Tabela lida: <b>'+esc(r.empresa)+'</b> ('+r.qtd+' imóveis).<br>'+(r.candidatos.length?'Qual é a pasta?':'Não achei a pasta sozinho. Procure abaixo:'),
+      r.candidatos, function(id){ confirmar(r.url, r.empresa, id) });
+  }, 'Lendo a tabela...');
+}
+function confirmar(url, empresa, id){
+  fechar(); $('url').value='';
+  chamar('confirmarLink', [url, empresa, id], function(x){ aplicar(x); var i=E.links.findIndex(function(l){return l.url===url}); if(i>=0) um(i) }, 'Salvando...');
+}
+var _cb=null, _todas=null, _ids=[];
+function escolherPasta(titulo, cands, cb){
+  _cb=cb; _ids=[];
+  var h='<p>'+titulo+'</p>';
+  cands.forEach(function(c){ _ids.push(c.id); h+='<button class="op" onclick="_cb(_ids['+(_ids.length-1)+'])">📁 '+esc(c.categoria)+' / '+esc(c.nome)+'</button>' });
+  h+='<input type="search" id="fp" placeholder="🔎 Procurar outra pasta..." oninput="filtrarPastas()" style="margin-top:8px"><div id="tp"></div>'
+   +'<div class="linha"><button onclick="fechar()">Cancelar</button></div>';
+  modal(h);
+  if(_todas) filtrarPastas(); else google.script.run.withSuccessHandler(function(t){_todas=t;filtrarPastas()}).todasPastas();
+}
+function filtrarPastas(){
+  var el=$('tp'); if(!el||!_todas) return; var t=norm(($('fp')||{}).value||'');
+  if(!t){ el.innerHTML='<div class="info">Digite para procurar entre '+_todas.length+' pastas.</div>'; return }
+  var base=_ids.length, lista=_todas.filter(function(p){return norm(p.nome).indexOf(t)>=0}).slice(0,40);
+  _ids=_ids.slice(0,base);
+  el.innerHTML=lista.map(function(p){ _ids.push(p.id);
+    return '<button class="op" onclick="_cb(_ids['+(_ids.length-1)+'])">📁 '+esc(p.categoria)+' / '+esc(p.nome)+'</button>'}).join('')||'<div class="info">Nada.</div>';
+}
+function um(i){ var l=E.links[i]; l.status='⏳ executando...'; desenhar();
+  chamar('executar',[l.url], function(x){ aplicar(x); var n=E.links.find(function(z){return z.url===l.url}); if(n&&/^⚠/.test(n.status)&&E.erros[0]) mostrarErro(E.erros[0]) }, 'Baixando fotos de '+(l.empresa||'')+'... (pode demorar)') }
+function todos(){ if(!E.links.length) return; if(!confirm('Executar os '+E.links.length+' links agora?')) return;
+  chamar('executarTodos',[], aplicar, 'Executando todos... (se forem muitos, continua sozinho)') }
+function trocar(i){ var l=E.links[i]; escolherPasta('Nova pasta para <b>'+esc(l.empresa)+'</b>:', [], function(id){ fechar(); chamar('trocarPasta',[l.url,id],aplicar) }) }
+function remover(i){ var l=E.links[i]; if(confirm('Tirar "'+(l.empresa||l.url)+'" da lista?\n(As fotos já baixadas continuam no Drive.)')) chamar('removerLink',[l.url],aplicar) }
+function verImoveis(i){ var l=E.links[i];
+  modal('<h3 style="margin-top:0">'+esc(l.empresa)+'</h3><b>'+l.imoveis.length+' imóveis</b><ul class="im">'
+    + l.imoveis.map(function(v){return '<li>'+esc(v.nome)+' — '+v.fotos+' foto(s)</li>'}).join('')+'</ul>'
+    + (l.sairam.length?'<b style="color:#c62828">Saíram (pasta foi para a lixeira):</b><ul class="im">'+l.sairam.map(function(s){return '<li>'+esc(s.nome)+' — '+esc(s.data)+'</li>'}).join('')+'</ul>':'')
+    + '<div class="linha"><button onclick="fechar()">Fechar</button></div>') }
+function limparErros(){ if(confirm('Apagar a lista de erros?')) chamar('limparErros',[],aplicar) }
+function auto(v){ chamar('ligarAuto',[v],aplicar, v?'Ligando atualização diária...':'Desligando...') }
+
+if (lerPin()) { $('app').style.display=''; atualizar() } else pedirPin();
+setInterval(function(){ if(E.fila && lerPin()) google.script.run.withSuccessHandler(aplicar).estado() }, 20000);
+</script>
+</body>
+</html>
